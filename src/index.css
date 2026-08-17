@@ -1,0 +1,133 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Cafeicultura — Verde café / orgânico
+   All colors HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 40 33% 97%;
+    --foreground: 95 25% 12%;
+
+    --card: 40 40% 99%;
+    --card-foreground: 95 25% 12%;
+
+    --popover: 40 40% 99%;
+    --popover-foreground: 95 25% 12%;
+
+    --primary: 130 35% 22%;
+    --primary-foreground: 45 50% 96%;
+
+    --secondary: 38 30% 92%;
+    --secondary-foreground: 95 25% 18%;
+
+    --muted: 38 25% 93%;
+    --muted-foreground: 95 10% 38%;
+
+    --accent: 28 55% 45%;
+    --accent-foreground: 45 50% 97%;
+
+    --destructive: 5 70% 45%;
+    --destructive-foreground: 45 50% 97%;
+
+    --success: 140 50% 32%;
+    --success-foreground: 45 50% 97%;
+
+    --warning: 35 85% 50%;
+    --warning-foreground: 95 25% 12%;
+
+    --coffee: 25 45% 28%;
+    --coffee-foreground: 45 50% 97%;
+
+    --leaf: 130 35% 22%;
+    --leaf-soft: 130 25% 88%;
+
+    --border: 38 20% 86%;
+    --input: 38 20% 88%;
+    --ring: 130 35% 22%;
+
+    --radius: 0.75rem;
+
+    --gradient-hero: linear-gradient(135deg, hsl(130 35% 22%) 0%, hsl(95 30% 30%) 100%);
+    --gradient-coffee: linear-gradient(135deg, hsl(25 45% 28%) 0%, hsl(28 55% 38%) 100%);
+    --shadow-soft: 0 1px 3px hsl(95 25% 12% / 0.05), 0 4px 16px hsl(95 25% 12% / 0.04);
+    --shadow-card: 0 2px 8px hsl(95 25% 12% / 0.06), 0 8px 24px hsl(95 25% 12% / 0.05);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 95 20% 8%;
+    --foreground: 45 30% 94%;
+    --card: 95 18% 11%;
+    --card-foreground: 45 30% 94%;
+    --popover: 95 18% 11%;
+    --popover-foreground: 45 30% 94%;
+    --primary: 130 40% 60%;
+    --primary-foreground: 95 25% 10%;
+    --secondary: 95 15% 16%;
+    --secondary-foreground: 45 30% 94%;
+    --muted: 95 12% 16%;
+    --muted-foreground: 45 10% 65%;
+    --accent: 28 60% 55%;
+    --accent-foreground: 95 25% 10%;
+    --destructive: 5 65% 50%;
+    --destructive-foreground: 45 30% 94%;
+    --success: 140 50% 50%;
+    --success-foreground: 95 25% 10%;
+    --warning: 35 85% 55%;
+    --warning-foreground: 95 25% 10%;
+    --coffee: 25 40% 45%;
+    --coffee-foreground: 45 30% 94%;
+    --leaf: 130 40% 60%;
+    --leaf-soft: 130 20% 22%;
+    --border: 95 12% 20%;
+    --input: 95 12% 20%;
+    --ring: 130 40% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1, h2, h3, h4 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-feature-settings: 'ss01';
+    letter-spacing: -0.015em;
+  }
+}
+
+@layer utilities {
+  .text-success { color: hsl(var(--success)); }
+  .text-warning { color: hsl(var(--warning)); }
+  .text-coffee  { color: hsl(var(--coffee)); }
+  .text-leaf    { color: hsl(var(--leaf)); }
+  .bg-success   { background-color: hsl(var(--success)); }
+  .bg-warning   { background-color: hsl(var(--warning)); }
+  .bg-coffee    { background-color: hsl(var(--coffee)); }
+  .bg-leaf      { background-color: hsl(var(--leaf)); }
+  .bg-leaf-soft { background-color: hsl(var(--leaf-soft)); }
+  .bg-gradient-hero   { background-image: var(--gradient-hero); }
+  .bg-gradient-coffee { background-image: var(--gradient-coffee); }
+  .shadow-soft { box-shadow: var(--shadow-soft); }
+  .shadow-card { box-shadow: var(--shadow-card); }
+}

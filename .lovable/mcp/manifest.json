@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "sdk_version": "0.26.1",
+  "path": "/functions/v1/mcp",
+  "auth": {
+    "type": "none"
+  },
+  "mcp": {
+    "server": {
+      "name": "coffee-stock-keeper",
+      "version": "0.1.0",
+      "title": "Coffee Stock Keeper"
+    },
+    "tools": [
+      {
+        "name": "list_products",
+        "title": "Listar produtos",
+        "description": "Lista os produtos (insumos) cadastrados no catálogo, com filtros opcionais por classe, princípio ativo ou busca por nome.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "search": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Busca por nome, código ou princípio ativo."
+            },
+            "productClass": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Filtra por classe (ex: Herbicida, Inseticida)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "description": "Máximo de itens retornados (padrão 50)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_product",
+        "title": "Detalhar produto",
+        "description": "Retorna os dados de cadastro de um produto pelo código (ex: P001) ou pelo nome exato.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "idOrName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Código do produto (P001) ou nome exato."
+            }
+          },
+          "required": [
+            "idOrName"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_taxonomy",
+        "title": "Listar classes, talhões e atividades",
+        "description": "Retorna as listas de referência do controle de estoque: classes de produto, princípios ativos, talhões/locais e atividades.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "all",
+                "classes",
+                "ingredients",
+                "locations",
+                "activities"
+              ],
+              "description": "Qual lista retornar (padrão: all)."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
