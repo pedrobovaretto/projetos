@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { StockLocationDialog } from "@/components/StockLocationDialog";
+import { DuplicateAuditDialog } from "@/components/DuplicateAuditDialog";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -22,25 +24,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
+import { Search, MapPin, Plus, Pencil, Trash2, RotateCcw, ScanSearch } from "lucide-react";
 import { useStore } from "@/hooks/useStore";
 import type { StockLocation } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const LocaisEstoque = () => {
-  const { stockLocations, movements, deleteStockLocation } = useStore();
+  const { stockLocations, removeOrDeactivateStockLocation, reactivateStockLocation, mergeStockLocations } =
+    useStore();
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [editing, setEditing] = useState<StockLocation | null>(null);
   const [toDelete, setToDelete] = useState<StockLocation | null>(null);
-
-  const usageCount = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const m of movements) {
-      map.set(m.location, (map.get(m.location) ?? 0) + 1);
-    }
-    return map;
-  }, [movements]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -48,6 +45,11 @@ const LocaisEstoque = () => {
       .filter((l) => !q || l.name.toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
   }, [stockLocations, search]);
+
+  const duplicateItems = useMemo(
+    () => stockLocations.map((l) => ({ id: l.id, label: l.name, sublabel: l.id })),
+    [stockLocations],
+  );
 
   const openNew = () => {
     setEditing(null);
@@ -61,14 +63,12 @@ const LocaisEstoque = () => {
 
   const confirmDelete = () => {
     if (!toDelete) return;
-    const used = usageCount.get(toDelete.name) ?? 0;
-    if (used > 0) {
-      toast.error(`Local possui ${used} movimentação(ões) e não pode ser excluído`);
-      setToDelete(null);
-      return;
+    const result = removeOrDeactivateStockLocation(toDelete.id);
+    if (result === "deactivated") {
+      toast.success("Local possui movimentações e foi inativado (histórico preservado)");
+    } else {
+      toast.success("Local excluído");
     }
-    deleteStockLocation(toDelete.id);
-    toast.success("Local excluído");
     setToDelete(null);
   };
 
@@ -84,10 +84,16 @@ const LocaisEstoque = () => {
               {stockLocations.length === 1 ? "local cadastrado" : "locais cadastrados"}.
             </p>
           </div>
-          <Button onClick={openNew} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Novo local
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setDuplicatesOpen(true)} className="gap-2">
+              <ScanSearch className="h-4 w-4" />
+              Verificar duplicados
+            </Button>
+            <Button onClick={openNew} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Novo local
+            </Button>
+          </div>
         </div>
 
         <Card className="overflow-hidden border-border/60 shadow-soft">
@@ -121,34 +127,61 @@ const LocaisEstoque = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((l) => (
-                  <TableRow key={l.id} className="group">
-                    <TableCell className="font-mono text-xs text-muted-foreground">{l.id}</TableCell>
-                    <TableCell className="font-medium">{l.name}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => openEdit(l)}
-                          aria-label="Editar"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8"
-                          onClick={() => setToDelete(l)}
-                          aria-label="Excluir"
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filtered.map((l) => {
+                  const inactive = l.active === false;
+                  return (
+                    <TableRow key={l.id} className={cn("group", inactive && "opacity-60")}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{l.id}</TableCell>
+                      <TableCell className="font-medium">
+                        <span className="inline-flex items-center gap-2">
+                          {l.name}
+                          {inactive && (
+                            <Badge variant="outline" className="border-transparent bg-muted text-muted-foreground">
+                              Inativo
+                            </Badge>
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={() => openEdit(l)}
+                            aria-label="Editar"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          {inactive ? (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => {
+                                reactivateStockLocation(l.id);
+                                toast.success("Local reativado");
+                              }}
+                              aria-label="Reativar"
+                            >
+                              <RotateCcw className="h-4 w-4 text-leaf" />
+                            </Button>
+                          ) : (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => setToDelete(l)}
+                              aria-label="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -156,13 +189,22 @@ const LocaisEstoque = () => {
       </main>
 
       <StockLocationDialog open={dialogOpen} onOpenChange={setDialogOpen} location={editing} />
+      <DuplicateAuditDialog
+        open={duplicatesOpen}
+        onOpenChange={setDuplicatesOpen}
+        items={duplicateItems}
+        onMerge={mergeStockLocations}
+        entityName="local"
+      />
 
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir local?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita. Locais com movimentações registradas não podem ser excluídos.
+              Se o local não tiver movimentações, ele será excluído permanentemente. Se já tiver
+              movimentações registradas, ele será inativado: deixa de aparecer como opção para novas
+              movimentações, mas continua exibido corretamente no histórico.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

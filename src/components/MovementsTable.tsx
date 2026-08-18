@@ -10,15 +10,32 @@ import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { ArrowDownToLine, ArrowUpFromLine, Search, Trash2, Inbox } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { ArrowDownToLine, ArrowUpFromLine, Search, Trash2, Pencil, Inbox } from "lucide-react";
 import { brl, formatDateBR, num } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { Movement } from "@/lib/types";
+import { toast } from "sonner";
 
-export const MovementsTable = () => {
+interface MovementsTableProps {
+  onEdit: (movement: Movement) => void;
+}
+
+export const MovementsTable = ({ onEdit }: MovementsTableProps) => {
   const { movements, stockLocations, productById, deleteMovement } = useStore();
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<"all" | "entrada" | "saida">("all");
   const [filterLocation, setFilterLocation] = useState<string>("all");
+  const [toDelete, setToDelete] = useState<Movement | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -34,6 +51,13 @@ export const MovementsTable = () => {
       })
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.createdAt < b.createdAt ? 1 : -1));
   }, [movements, search, filterType, filterLocation, productById]);
+
+  const confirmDelete = () => {
+    if (!toDelete) return;
+    deleteMovement(toDelete.id);
+    toast.success("Movimentação excluída — saldo do estoque atualizado");
+    setToDelete(null);
+  };
 
   return (
     <Card className="overflow-hidden border-border/60 shadow-soft">
@@ -92,7 +116,7 @@ export const MovementsTable = () => {
               <TableHead className="text-right">Qtd.</TableHead>
               <TableHead className="text-right">Preço unit.</TableHead>
               <TableHead className="text-right">Total</TableHead>
-              <TableHead className="w-[60px]" />
+              <TableHead className="w-[90px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -140,15 +164,26 @@ export const MovementsTable = () => {
                     {total ? brl(total) : "—"}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 opacity-0 group-hover:opacity-100"
-                      onClick={() => deleteMovement(m.id)}
-                      aria-label="Excluir movimentação"
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => onEdit(m)}
+                        aria-label="Editar movimentação"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={() => setToDelete(m)}
+                        aria-label="Excluir movimentação"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               );
@@ -156,6 +191,21 @@ export const MovementsTable = () => {
           </TableBody>
         </Table>
       )}
+
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir movimentação?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita e vai alterar o saldo do estoque deste produto.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete}>Excluir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 };

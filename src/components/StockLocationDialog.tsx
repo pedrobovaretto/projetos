@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { StockLocation } from "@/lib/types";
+import { normalizeName } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface StockLocationDialogProps {
@@ -37,7 +38,7 @@ export const StockLocationDialog = ({ open, onOpenChange, location }: StockLocat
     const trimmed = name.trim();
     if (!trimmed) return toast.error("Informe o nome do local");
     const duplicate = stockLocations.some(
-      (l) => l.id !== location?.id && l.name.toLowerCase() === trimmed.toLowerCase(),
+      (l) => l.id !== location?.id && normalizeName(l.name) === normalizeName(trimmed),
     );
     if (duplicate) return toast.error("Já existe um local com esse nome");
 

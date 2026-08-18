@@ -10,6 +10,17 @@ export const formatDateBR = (iso: string) => {
   return `${d}/${m}/${y}`;
 };
 
+/** Converte "dd/mm/yyyy" para ISO "yyyy-mm-dd". Retorna null se o formato for inválido. */
+export const parseDateBR = (br: string): string | null => {
+  const match = br.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, d, m, y] = match;
+  const day = d.padStart(2, "0");
+  const month = m.padStart(2, "0");
+  if (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31) return null;
+  return `${y}-${month}-${day}`;
+};
+
 export const todayISO = () => {
   const d = new Date();
   const off = d.getTimezoneOffset();

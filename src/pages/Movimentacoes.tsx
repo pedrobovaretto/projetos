@@ -1,15 +1,31 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { MovementDialog } from "@/components/MovementDialog";
 import { MovementsTable } from "@/components/MovementsTable";
+import { ImportMovementsDialog } from "@/components/ImportMovementsDialog";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useStore } from "@/hooks/useStore";
 import { brl, num } from "@/lib/format";
-import { ArrowDownToLine, ArrowUpFromLine, Activity } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Activity, FileUp, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Movement } from "@/lib/types";
 
 const Movimentacoes = () => {
   const { movements } = useStore();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [editing, setEditing] = useState<Movement | null>(null);
+
+  const openNew = () => {
+    setEditing(null);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (m: Movement) => {
+    setEditing(m);
+    setDialogOpen(true);
+  };
 
   const stats = useMemo(() => {
     let entradasQty = 0;
@@ -46,7 +62,16 @@ const Movimentacoes = () => {
               Fluxo de entradas e saídas do estoque.
             </p>
           </div>
-          <MovementDialog />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)} className="gap-2">
+              <FileUp className="h-4 w-4" />
+              Importar Excel
+            </Button>
+            <Button size="lg" className="gap-2 rounded-full px-5 shadow-soft" onClick={openNew}>
+              <Plus className="h-4 w-4" />
+              Nova movimentação
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -80,8 +105,11 @@ const Movimentacoes = () => {
           />
         </div>
 
-        <MovementsTable />
+        <MovementsTable onEdit={openEdit} />
       </main>
+
+      <MovementDialog open={dialogOpen} onOpenChange={setDialogOpen} movement={editing} />
+      <ImportMovementsDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 };

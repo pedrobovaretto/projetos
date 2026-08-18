@@ -22,6 +22,7 @@ export interface Product {
   productClass: ProductClass;
   activeIngredient: string;
   unit: Unit;
+  active?: boolean;     // ausente = ativo; false = inativado (tinha movimentações e não pôde ser excluído)
 }
 
 export type MovementType = "entrada" | "saida";
@@ -29,6 +30,7 @@ export type MovementType = "entrada" | "saida";
 export interface StockLocation {
   id: string;          // ex: LOC001
   name: string;
+  active?: boolean;     // ausente = ativo; false = inativado (tinha movimentações e não pôde ser excluído)
 }
 
 export type Location = string;

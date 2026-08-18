@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { Product, ProductClass, Unit } from "@/lib/types";
+import { normalizeName } from "@/lib/utils";
 import { toast } from "sonner";
 
 const CLASSES: ProductClass[] = [
@@ -47,7 +48,7 @@ interface ProductDialogProps {
 }
 
 export const ProductDialog = ({ open, onOpenChange, product }: ProductDialogProps) => {
-  const { addProduct, updateProduct } = useStore();
+  const { products, addProduct, updateProduct } = useStore();
   const isEdit = !!product;
 
   const [name, setName] = useState("");
@@ -67,6 +68,10 @@ export const ProductDialog = ({ open, onOpenChange, product }: ProductDialogProp
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return toast.error("Informe o nome do produto");
+    const duplicate = products.some(
+      (p) => p.id !== product?.id && normalizeName(p.name) === normalizeName(name),
+    );
+    if (duplicate) return toast.error("Já existe um produto com esse nome");
     const payload = {
       name: name.trim(),
       productClass,

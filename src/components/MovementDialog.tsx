@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/hooks/useStore";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,37 +11,76 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowDownToLine, ArrowUpFromLine, Plus } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { todayISO } from "@/lib/format";
-import { ACTIVITIES, type Activity, type Location, type MovementType } from "@/lib/types";
+import { ACTIVITIES, type Activity, type Location, type Movement, type MovementType } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export const MovementDialog = () => {
-  const { products, stockLocations, addMovement } = useStore();
-  const [open, setOpen] = useState(false);
+interface MovementDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  movement?: Movement | null;
+}
+
+export const MovementDialog = ({ open, onOpenChange, movement }: MovementDialogProps) => {
+  const { products, stockLocations, addMovement, updateMovement } = useStore();
+  const isEdit = !!movement;
 
   const [type, setType] = useState<MovementType>("entrada");
   const [date, setDate] = useState(todayISO());
   const [productId, setProductId] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [unitPrice, setUnitPrice] = useState<string>("");
-  const [location, setLocation] = useState<Location>(stockLocations[0]?.name ?? "");
+  const [location, setLocation] = useState<Location>("");
   const [activity, setActivity] = useState<Activity>("");
   const [note, setNote] = useState("");
   const [osNumber, setOsNumber] = useState("");
 
-  const reset = () => {
-    setType("entrada");
-    setDate(todayISO());
-    setProductId("");
-    setQuantity("");
-    setUnitPrice("");
-    setLocation(stockLocations[0]?.name ?? "");
-    setActivity("");
-    setNote("");
-    setOsNumber("");
-  };
+  useEffect(() => {
+    if (!open) return;
+    if (movement) {
+      setType(movement.type);
+      setDate(movement.date);
+      setProductId(movement.productId);
+      setQuantity(String(movement.quantity).replace(".", ","));
+      setUnitPrice(movement.unitPrice > 0 ? String(movement.unitPrice).replace(".", ",") : "");
+      setLocation(movement.location);
+      setActivity(movement.activity ?? "");
+      setNote(movement.note ?? "");
+      setOsNumber(movement.osNumber ?? "");
+    } else {
+      setType("entrada");
+      setDate(todayISO());
+      setProductId("");
+      setQuantity("");
+      setUnitPrice("");
+      setLocation(stockLocations.find((l) => l.active !== false)?.name ?? "");
+      setActivity("");
+      setNote("");
+      setOsNumber("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, movement]);
+
+  // Produto/local do registro em edição continuam disponíveis mesmo se tiverem sido inativados.
+  const availableProducts = useMemo(() => {
+    const active = products.filter((p) => p.active !== false);
+    if (movement && !active.some((p) => p.id === movement.productId)) {
+      const existing = products.find((p) => p.id === movement.productId);
+      if (existing) return [...active, existing];
+    }
+    return active;
+  }, [products, movement]);
+
+  const availableLocations = useMemo(() => {
+    const active = stockLocations.filter((l) => l.active !== false);
+    if (movement && !active.some((l) => l.name === movement.location)) {
+      const existing = stockLocations.find((l) => l.name === movement.location);
+      return [...active, existing ?? { id: `hist-${movement.location}`, name: movement.location }];
+    }
+    return active;
+  }, [stockLocations, movement]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +91,7 @@ export const MovementDialog = () => {
     if (type === "entrada" && (!p || p < 0)) return toast.error("Informe o preço unitário");
     if (!location) return toast.error("Selecione o local");
 
-    addMovement({
+    const payload = {
       type,
       date,
       productId,
@@ -62,25 +101,29 @@ export const MovementDialog = () => {
       activity: activity || undefined,
       note: note.trim() || undefined,
       osNumber: osNumber.trim() || undefined,
-    });
-    toast.success(type === "entrada" ? "Entrada registrada" : "Saída registrada");
-    reset();
-    setOpen(false);
+    };
+
+    if (isEdit && movement) {
+      updateMovement(movement.id, payload);
+      toast.success("Movimentação atualizada");
+    } else {
+      addMovement(payload);
+      toast.success(type === "entrada" ? "Entrada registrada" : "Saída registrada");
+    }
+    onOpenChange(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-      <DialogTrigger asChild>
-        <Button size="lg" className="gap-2 rounded-full px-5 shadow-soft">
-          <Plus className="h-4 w-4" />
-          Nova movimentação
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-serif text-2xl">Registrar movimentação</DialogTitle>
+          <DialogTitle className="font-serif text-2xl">
+            {isEdit ? "Editar movimentação" : "Registrar movimentação"}
+          </DialogTitle>
           <DialogDescription>
-            Registre entradas e saídas de produtos do estoque.
+            {isEdit
+              ? "Atualize os dados desta movimentação. O saldo do estoque é recalculado automaticamente."
+              : "Registre entradas e saídas de produtos do estoque."}
           </DialogDescription>
         </DialogHeader>
 
@@ -106,7 +149,7 @@ export const MovementDialog = () => {
               <Select value={location} onValueChange={(v) => setLocation(v as Location)}>
                 <SelectTrigger><SelectValue placeholder="Selecione o local" /></SelectTrigger>
                 <SelectContent className="max-h-72">
-                  {stockLocations.map((loc) => (
+                  {availableLocations.map((loc) => (
                     <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -119,7 +162,7 @@ export const MovementDialog = () => {
             <Select value={productId} onValueChange={setProductId}>
               <SelectTrigger><SelectValue placeholder="Selecione um produto" /></SelectTrigger>
               <SelectContent className="max-h-72">
-                {products.map((p) => (
+                {availableProducts.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     <span className="font-medium">{p.name}</span>
                     <span className="ml-2 text-xs text-muted-foreground">{p.productClass} · {p.unit}</span>
@@ -171,9 +214,9 @@ export const MovementDialog = () => {
           </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
             <Button type="submit" className="gap-2">
-              Registrar {type === "entrada" ? "entrada" : "saída"}
+              {isEdit ? "Salvar alterações" : `Registrar ${type === "entrada" ? "entrada" : "saída"}`}
             </Button>
           </DialogFooter>
         </form>
