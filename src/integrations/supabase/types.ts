@@ -14,7 +14,101 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      products: {
+        Row: {
+          id: string
+          name: string
+          product_class: string
+          active_ingredient: string
+          unit: string
+          active: boolean
+        }
+        Insert: {
+          id: string
+          name: string
+          product_class: string
+          active_ingredient?: string
+          unit: string
+          active?: boolean
+        }
+        Update: {
+          id?: string
+          name?: string
+          product_class?: string
+          active_ingredient?: string
+          unit?: string
+          active?: boolean
+        }
+        Relationships: []
+      }
+      stock_locations: {
+        Row: {
+          id: string
+          name: string
+          active: boolean
+        }
+        Insert: {
+          id: string
+          name: string
+          active?: boolean
+        }
+        Update: {
+          id?: string
+          name?: string
+          active?: boolean
+        }
+        Relationships: []
+      }
+      movements: {
+        Row: {
+          id: string
+          date: string
+          type: string
+          product_id: string
+          quantity: number
+          unit_price: number
+          location: string
+          activity: string | null
+          note: string | null
+          os_number: string | null
+          created_at: string
+        }
+        Insert: {
+          id: string
+          date: string
+          type: string
+          product_id: string
+          quantity: number
+          unit_price?: number
+          location: string
+          activity?: string | null
+          note?: string | null
+          os_number?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          date?: string
+          type?: string
+          product_id?: string
+          quantity?: number
+          unit_price?: number
+          location?: string
+          activity?: string | null
+          note?: string | null
+          os_number?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "movements_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

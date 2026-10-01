@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Movement, Product, StockLocation } from "@/lib/types";
+import type { Movement, MovementType, Product, ProductClass, StockLocation, Unit } from "@/lib/types";
 import { SEED_PRODUCTS, SEED_STOCK_LOCATIONS } from "@/lib/seed";
+import { supabase } from "@/integrations/supabase/client";
+import type { Tables, TablesInsert } from "@/integrations/supabase/types";
+import { toast } from "sonner";
 
 const STORAGE_KEY = "cafeeira-store-v2";
 
@@ -13,6 +16,7 @@ interface StoreState {
 type RemoveResult = "deleted" | "deactivated";
 
 interface StoreContextValue extends StoreState {
+  loading: boolean;
   addMovement: (m: Omit<Movement, "id" | "createdAt">) => void;
   addMovements: (list: Omit<Movement, "id" | "createdAt">[]) => void;
   updateMovement: (id: string, m: Omit<Movement, "id" | "createdAt">) => void;
@@ -36,23 +40,65 @@ interface StoreContextValue extends StoreState {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-const initial: StoreState = { products: SEED_PRODUCTS, movements: [], stockLocations: SEED_STOCK_LOCATIONS };
+// ---- conversão entre o formato usado no app (camelCase) e as tabelas do Supabase (snake_case) ----
 
-const load = (): StoreState => {
-  if (typeof window === "undefined") return initial;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initial;
-    const parsed = JSON.parse(raw) as StoreState;
-    return {
-      products: parsed.products?.length ? parsed.products : SEED_PRODUCTS,
-      movements: parsed.movements ?? [],
-      stockLocations: parsed.stockLocations?.length ? parsed.stockLocations : SEED_STOCK_LOCATIONS,
-    };
-  } catch {
-    return initial;
-  }
-};
+const productToRow = (p: Product): TablesInsert<"products"> => ({
+  id: p.id,
+  name: p.name,
+  product_class: p.productClass,
+  active_ingredient: p.activeIngredient,
+  unit: p.unit,
+  active: p.active ?? true,
+});
+
+const rowToProduct = (r: Tables<"products">): Product => ({
+  id: r.id,
+  name: r.name,
+  productClass: r.product_class as ProductClass,
+  activeIngredient: r.active_ingredient,
+  unit: r.unit as Unit,
+  active: r.active,
+});
+
+const locationToRow = (l: StockLocation): TablesInsert<"stock_locations"> => ({
+  id: l.id,
+  name: l.name,
+  active: l.active ?? true,
+});
+
+const rowToLocation = (r: Tables<"stock_locations">): StockLocation => ({
+  id: r.id,
+  name: r.name,
+  active: r.active,
+});
+
+const movementToRow = (m: Movement): TablesInsert<"movements"> => ({
+  id: m.id,
+  date: m.date,
+  type: m.type,
+  product_id: m.productId,
+  quantity: m.quantity,
+  unit_price: m.unitPrice,
+  location: m.location,
+  activity: m.activity ?? null,
+  note: m.note ?? null,
+  os_number: m.osNumber ?? null,
+  created_at: m.createdAt,
+});
+
+const rowToMovement = (r: Tables<"movements">): Movement => ({
+  id: r.id,
+  date: r.date,
+  type: r.type as MovementType,
+  productId: r.product_id,
+  quantity: Number(r.quantity),
+  unitPrice: Number(r.unit_price),
+  location: r.location,
+  activity: r.activity ?? undefined,
+  note: r.note ?? undefined,
+  osNumber: r.os_number ?? undefined,
+  createdAt: r.created_at,
+});
 
 const nextProductId = (products: Product[]) => {
   const max = products.reduce((acc, p) => {
@@ -71,43 +117,159 @@ const nextLocationId = (locations: StockLocation[]) => {
 };
 
 export const StoreProvider = ({ children }: { children: ReactNode }) => {
-  const [state, setState] = useState<StoreState>(() => load());
+  const [state, setState] = useState<StoreState>({ products: [], movements: [], stockLocations: [] });
+  const [loading, setLoading] = useState(true);
 
+  // Carregamento inicial: busca do Supabase; se a nuvem estiver vazia e houver dados
+  // locais antigos (localStorage), migra-os uma única vez para a nuvem.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [productsRes, locationsRes, movementsRes] = await Promise.all([
+          supabase.from("products").select("*"),
+          supabase.from("stock_locations").select("*"),
+          supabase.from("movements").select("*"),
+        ]);
+        if (productsRes.error) throw productsRes.error;
+        if (locationsRes.error) throw locationsRes.error;
+        if (movementsRes.error) throw movementsRes.error;
+
+        const cloudEmpty =
+          (productsRes.data?.length ?? 0) === 0 &&
+          (locationsRes.data?.length ?? 0) === 0 &&
+          (movementsRes.data?.length ?? 0) === 0;
+
+        if (cloudEmpty) {
+          const raw = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+          let localProducts = SEED_PRODUCTS;
+          let localLocations = SEED_STOCK_LOCATIONS;
+          let localMovements: Movement[] = [];
+
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw) as StoreState;
+              localProducts = parsed.products?.length ? parsed.products : SEED_PRODUCTS;
+              localLocations = parsed.stockLocations?.length ? parsed.stockLocations : SEED_STOCK_LOCATIONS;
+              localMovements = parsed.movements ?? [];
+            } catch {
+              // ignora JSON inválido e segue com os valores padrão (seed)
+            }
+          }
+
+          if (localProducts.length) {
+            const { error } = await supabase.from("products").insert(localProducts.map(productToRow));
+            if (error) throw error;
+          }
+          if (localLocations.length) {
+            const { error } = await supabase.from("stock_locations").insert(localLocations.map(locationToRow));
+            if (error) throw error;
+          }
+          if (localMovements.length) {
+            const { error } = await supabase.from("movements").insert(localMovements.map(movementToRow));
+            if (error) throw error;
+          }
+
+          if (!cancelled) {
+            setState({ products: localProducts, movements: localMovements, stockLocations: localLocations });
+          }
+          if (raw) toast.success("Dados deste computador migrados para a nuvem");
+        } else if (!cancelled) {
+          setState({
+            products: (productsRes.data ?? []).map(rowToProduct),
+            stockLocations: (locationsRes.data ?? []).map(rowToLocation),
+            movements: (movementsRes.data ?? []).map(rowToMovement),
+          });
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error(
+          "Não foi possível conectar ao banco de dados na nuvem. Verifique se as tabelas foram criadas no Supabase.",
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addMovement: StoreContextValue["addMovement"] = useCallback((m) => {
-    setState((s) => ({
-      ...s,
-      movements: [
-        { ...m, id: crypto.randomUUID(), createdAt: new Date().toISOString() },
-        ...s.movements,
-      ],
-    }));
+    const created: Movement = { ...m, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+    setState((s) => ({ ...s, movements: [created, ...s.movements] }));
+    supabase
+      .from("movements")
+      .insert(movementToRow(created))
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao salvar movimentação na nuvem — tente novamente");
+          setState((s) => ({ ...s, movements: s.movements.filter((mv) => mv.id !== created.id) }));
+        }
+      });
   }, []);
 
   const addMovements: StoreContextValue["addMovements"] = useCallback((list) => {
     if (!list.length) return;
     const now = new Date().toISOString();
-    setState((s) => ({
-      ...s,
-      movements: [
-        ...list.map((m) => ({ ...m, id: crypto.randomUUID(), createdAt: now })),
-        ...s.movements,
-      ],
-    }));
+    const created = list.map((m) => ({ ...m, id: crypto.randomUUID(), createdAt: now }));
+    setState((s) => ({ ...s, movements: [...created, ...s.movements] }));
+    supabase
+      .from("movements")
+      .insert(created.map(movementToRow))
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao importar movimentações na nuvem — tente novamente");
+          const ids = new Set(created.map((c) => c.id));
+          setState((s) => ({ ...s, movements: s.movements.filter((mv) => !ids.has(mv.id)) }));
+        }
+      });
   }, []);
 
   const updateMovement: StoreContextValue["updateMovement"] = useCallback((id, m) => {
-    setState((s) => ({
-      ...s,
-      movements: s.movements.map((it) => (it.id === id ? { ...m, id, createdAt: it.createdAt } : it)),
-    }));
+    let previous: Movement | undefined;
+    setState((s) => {
+      previous = s.movements.find((it) => it.id === id);
+      return { ...s, movements: s.movements.map((it) => (it.id === id ? { ...m, id, createdAt: it.createdAt } : it)) };
+    });
+    supabase
+      .from("movements")
+      .update(movementToRow({ ...m, id, createdAt: previous?.createdAt ?? new Date().toISOString() }))
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao salvar alterações na nuvem — tente novamente");
+          if (previous) {
+            const prev = previous;
+            setState((s) => ({ ...s, movements: s.movements.map((it) => (it.id === id ? prev : it)) }));
+          }
+        }
+      });
   }, []);
 
   const deleteMovement = useCallback((id: string) => {
-    setState((s) => ({ ...s, movements: s.movements.filter((m) => m.id !== id) }));
+    let removed: Movement | undefined;
+    setState((s) => {
+      removed = s.movements.find((m) => m.id === id);
+      return { ...s, movements: s.movements.filter((m) => m.id !== id) };
+    });
+    supabase
+      .from("movements")
+      .delete()
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao excluir movimentação na nuvem — tente novamente");
+          if (removed) {
+            const prev = removed;
+            setState((s) => ({ ...s, movements: [prev, ...s.movements] }));
+          }
+        }
+      });
   }, []);
 
   const addProduct: StoreContextValue["addProduct"] = useCallback((p) => {
@@ -116,13 +278,24 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       created = { ...p, id: nextProductId(s.products) };
       return { ...s, products: [...s.products, created] };
     });
+    supabase
+      .from("products")
+      .insert(productToRow(created))
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao salvar produto na nuvem — tente novamente");
+          setState((s) => ({ ...s, products: s.products.filter((it) => it.id !== created.id) }));
+        }
+      });
     return created;
   }, []);
 
   const addProducts: StoreContextValue["addProducts"] = useCallback((list) => {
     if (!list.length) return;
+    let created: Product[] = [];
     setState((s) => {
-      const created: Product[] = [];
+      created = [];
       let products = s.products;
       for (const p of list) {
         const item = { ...p, id: nextProductId(products) };
@@ -131,21 +304,66 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       }
       return { ...s, products };
     });
+    supabase
+      .from("products")
+      .insert(created.map(productToRow))
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao importar produtos na nuvem — tente novamente");
+          const ids = new Set(created.map((c) => c.id));
+          setState((s) => ({ ...s, products: s.products.filter((it) => !ids.has(it.id)) }));
+        }
+      });
   }, []);
 
   const updateProduct: StoreContextValue["updateProduct"] = useCallback((id, p) => {
-    setState((s) => ({
-      ...s,
-      products: s.products.map((it) => (it.id === id ? { ...p, id } : it)),
-    }));
+    let previous: Product | undefined;
+    setState((s) => {
+      previous = s.products.find((it) => it.id === id);
+      return { ...s, products: s.products.map((it) => (it.id === id ? { ...p, id } : it)) };
+    });
+    supabase
+      .from("products")
+      .update(productToRow({ ...p, id }))
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao salvar produto na nuvem — tente novamente");
+          if (previous) {
+            const prev = previous;
+            setState((s) => ({ ...s, products: s.products.map((it) => (it.id === id ? prev : it)) }));
+          }
+        }
+      });
   }, []);
 
   const deleteProduct = useCallback((id: string) => {
-    setState((s) => ({ ...s, products: s.products.filter((p) => p.id !== id) }));
+    let removed: Product | undefined;
+    setState((s) => {
+      removed = s.products.find((p) => p.id === id);
+      return { ...s, products: s.products.filter((p) => p.id !== id) };
+    });
+    supabase
+      .from("products")
+      .delete()
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao excluir produto na nuvem — tente novamente");
+          if (removed) {
+            const prev = removed;
+            setState((s) => ({ ...s, products: [...s.products, prev] }));
+          }
+        }
+      });
   }, []);
 
   const removeOrDeactivateProduct: StoreContextValue["removeOrDeactivateProduct"] = useCallback((id) => {
     let result: RemoveResult = "deleted";
+    let removedProduct: Product | undefined;
     setState((s) => {
       const used = s.movements.some((m) => m.productId === id);
       if (used) {
@@ -153,26 +371,81 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         return { ...s, products: s.products.map((p) => (p.id === id ? { ...p, active: false } : p)) };
       }
       result = "deleted";
+      removedProduct = s.products.find((p) => p.id === id);
       return { ...s, products: s.products.filter((p) => p.id !== id) };
     });
+
+    if (result === "deactivated") {
+      supabase
+        .from("products")
+        .update({ active: false })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            toast.error("Falha ao inativar produto na nuvem — tente novamente");
+            setState((s) => ({ ...s, products: s.products.map((p) => (p.id === id ? { ...p, active: true } : p)) }));
+          }
+        });
+    } else {
+      supabase
+        .from("products")
+        .delete()
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) {
+            console.error(error);
+            toast.error("Falha ao excluir produto na nuvem — tente novamente");
+            if (removedProduct) {
+              const prev = removedProduct;
+              setState((s) => ({ ...s, products: [...s.products, prev] }));
+            }
+          }
+        });
+    }
     return result;
   }, []);
 
   const reactivateProduct = useCallback((id: string) => {
-    setState((s) => ({
-      ...s,
-      products: s.products.map((p) => (p.id === id ? { ...p, active: true } : p)),
-    }));
+    setState((s) => ({ ...s, products: s.products.map((p) => (p.id === id ? { ...p, active: true } : p)) }));
+    supabase
+      .from("products")
+      .update({ active: true })
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao reativar produto na nuvem — tente novamente");
+          setState((s) => ({ ...s, products: s.products.map((p) => (p.id === id ? { ...p, active: false } : p)) }));
+        }
+      });
   }, []);
 
   const mergeProducts: StoreContextValue["mergeProducts"] = useCallback((keepId, mergeIds) => {
-    setState((s) => ({
-      ...s,
-      movements: s.movements.map((m) =>
-        mergeIds.includes(m.productId) ? { ...m, productId: keepId } : m,
-      ),
-      products: s.products.filter((p) => !mergeIds.includes(p.id)),
-    }));
+    let affectedMovementIds: string[] = [];
+    setState((s) => {
+      affectedMovementIds = s.movements.filter((m) => mergeIds.includes(m.productId)).map((m) => m.id);
+      return {
+        ...s,
+        movements: s.movements.map((m) => (mergeIds.includes(m.productId) ? { ...m, productId: keepId } : m)),
+        products: s.products.filter((p) => !mergeIds.includes(p.id)),
+      };
+    });
+
+    (async () => {
+      try {
+        if (affectedMovementIds.length) {
+          const { error } = await supabase.from("movements").update({ product_id: keepId }).in("id", affectedMovementIds);
+          if (error) throw error;
+        }
+        const { error: deleteError } = await supabase.from("products").delete().in("id", mergeIds);
+        if (deleteError) throw deleteError;
+      } catch (error) {
+        console.error(error);
+        toast.error("Falha ao mesclar produtos na nuvem — a página será recarregada");
+        window.location.reload();
+      }
+    })();
   }, []);
 
   const productById = useCallback(
@@ -186,23 +459,67 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       created = { ...l, id: nextLocationId(s.stockLocations) };
       return { ...s, stockLocations: [...s.stockLocations, created] };
     });
+    supabase
+      .from("stock_locations")
+      .insert(locationToRow(created))
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao salvar local na nuvem — tente novamente");
+          setState((s) => ({ ...s, stockLocations: s.stockLocations.filter((it) => it.id !== created.id) }));
+        }
+      });
     return created;
   }, []);
 
   const updateStockLocation: StoreContextValue["updateStockLocation"] = useCallback((id, l) => {
-    setState((s) => ({
-      ...s,
-      stockLocations: s.stockLocations.map((it) => (it.id === id ? { ...l, id } : it)),
-    }));
+    let previous: StockLocation | undefined;
+    setState((s) => {
+      previous = s.stockLocations.find((it) => it.id === id);
+      return { ...s, stockLocations: s.stockLocations.map((it) => (it.id === id ? { ...l, id } : it)) };
+    });
+    supabase
+      .from("stock_locations")
+      .update(locationToRow({ ...l, id }))
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao salvar local na nuvem — tente novamente");
+          if (previous) {
+            const prev = previous;
+            setState((s) => ({ ...s, stockLocations: s.stockLocations.map((it) => (it.id === id ? prev : it)) }));
+          }
+        }
+      });
   }, []);
 
   const deleteStockLocation = useCallback((id: string) => {
-    setState((s) => ({ ...s, stockLocations: s.stockLocations.filter((l) => l.id !== id) }));
+    let removed: StockLocation | undefined;
+    setState((s) => {
+      removed = s.stockLocations.find((l) => l.id === id);
+      return { ...s, stockLocations: s.stockLocations.filter((l) => l.id !== id) };
+    });
+    supabase
+      .from("stock_locations")
+      .delete()
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao excluir local na nuvem — tente novamente");
+          if (removed) {
+            const prev = removed;
+            setState((s) => ({ ...s, stockLocations: [...s.stockLocations, prev] }));
+          }
+        }
+      });
   }, []);
 
   const removeOrDeactivateStockLocation: StoreContextValue["removeOrDeactivateStockLocation"] = useCallback(
     (id) => {
       let result: RemoveResult = "deleted";
+      let removedLocation: StockLocation | undefined;
       setState((s) => {
         const loc = s.stockLocations.find((l) => l.id === id);
         const used = !!loc && s.movements.some((m) => m.location === loc.name);
@@ -214,8 +531,41 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
           };
         }
         result = "deleted";
+        removedLocation = loc;
         return { ...s, stockLocations: s.stockLocations.filter((l) => l.id !== id) };
       });
+
+      if (result === "deactivated") {
+        supabase
+          .from("stock_locations")
+          .update({ active: false })
+          .eq("id", id)
+          .then(({ error }) => {
+            if (error) {
+              console.error(error);
+              toast.error("Falha ao inativar local na nuvem — tente novamente");
+              setState((s) => ({
+                ...s,
+                stockLocations: s.stockLocations.map((l) => (l.id === id ? { ...l, active: true } : l)),
+              }));
+            }
+          });
+      } else {
+        supabase
+          .from("stock_locations")
+          .delete()
+          .eq("id", id)
+          .then(({ error }) => {
+            if (error) {
+              console.error(error);
+              toast.error("Falha ao excluir local na nuvem — tente novamente");
+              if (removedLocation) {
+                const prev = removedLocation;
+                setState((s) => ({ ...s, stockLocations: [...s.stockLocations, prev] }));
+              }
+            }
+          });
+      }
       return result;
     },
     [],
@@ -226,21 +576,52 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       ...s,
       stockLocations: s.stockLocations.map((l) => (l.id === id ? { ...l, active: true } : l)),
     }));
+    supabase
+      .from("stock_locations")
+      .update({ active: true })
+      .eq("id", id)
+      .then(({ error }) => {
+        if (error) {
+          console.error(error);
+          toast.error("Falha ao reativar local na nuvem — tente novamente");
+          setState((s) => ({
+            ...s,
+            stockLocations: s.stockLocations.map((l) => (l.id === id ? { ...l, active: false } : l)),
+          }));
+        }
+      });
   }, []);
 
   const mergeStockLocations: StoreContextValue["mergeStockLocations"] = useCallback((keepId, mergeIds) => {
+    let keepName = "";
+    let mergeNames: string[] = [];
     setState((s) => {
       const keep = s.stockLocations.find((l) => l.id === keepId);
       if (!keep) return s;
-      const mergeNames = new Set(
-        s.stockLocations.filter((l) => mergeIds.includes(l.id)).map((l) => l.name),
-      );
+      keepName = keep.name;
+      mergeNames = s.stockLocations.filter((l) => mergeIds.includes(l.id)).map((l) => l.name);
       return {
         ...s,
-        movements: s.movements.map((m) => (mergeNames.has(m.location) ? { ...m, location: keep.name } : m)),
+        movements: s.movements.map((m) => (mergeNames.includes(m.location) ? { ...m, location: keep.name } : m)),
         stockLocations: s.stockLocations.filter((l) => !mergeIds.includes(l.id)),
       };
     });
+
+    if (!keepName) return;
+    (async () => {
+      try {
+        if (mergeNames.length) {
+          const { error } = await supabase.from("movements").update({ location: keepName }).in("location", mergeNames);
+          if (error) throw error;
+        }
+        const { error: deleteError } = await supabase.from("stock_locations").delete().in("id", mergeIds);
+        if (deleteError) throw deleteError;
+      } catch (error) {
+        console.error(error);
+        toast.error("Falha ao mesclar locais na nuvem — a página será recarregada");
+        window.location.reload();
+      }
+    })();
   }, []);
 
   const stockLocationById = useCallback(
@@ -251,6 +632,7 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
   const value = useMemo<StoreContextValue>(
     () => ({
       ...state,
+      loading,
       addMovement,
       addMovements,
       updateMovement,
@@ -273,6 +655,7 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
     }),
     [
       state,
+      loading,
       addMovement,
       addMovements,
       updateMovement,
